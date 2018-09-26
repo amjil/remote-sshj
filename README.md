@@ -9,14 +9,10 @@ Download from http://example.com/FIXME.
 ## Usage
 
 
-FIXME: explanation
-
-    <!-- $ java -jar holiday-data-0.1.0-standalone.jar [args] -->
-
-
-    $ (def remote {:host "10.220.5.71" :ssh-port 22 :user "root" :password "passw0rd"})
-    $ (upload "project.clj" "./" remote)
-    $ (util/download "project.clj" "./" remote)
+    $ (require '[amjil.scp :as scp])
+    $ (def remote {:host "10.220.5.71" :ssh-port 22 :user "root" :password "password"})
+    $ (scp/upload "project.clj" "./" remote)
+    $ (scp/download "project.clj" "./" remote)
 
 ## Options
 
