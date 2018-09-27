@@ -1,14 +1,17 @@
-(ns amjil.scp
+(ns amjil.ssh
   (:require [amjil.strint :refer (<<)]
             [clojure.tools.logging :as log]
             [clojure.java.io :as io])
   (:import
+   (java.util.concurrent TimeUnit)
    (net.schmizz.sshj.common StreamCopier$Listener)
    (net.schmizz.sshj.xfer FileSystemFile TransferListener)
    (net.schmizz.sshj SSHClient)
    (net.schmizz.sshj.userauth.keyprovider FileKeyProvider)
    (net.schmizz.sshj.transport.verification PromiscuousVerifier)))
 ;; https://github.com/re-ops/re-mote
+
+(def default-key (<< "~(System/getProperty \"user.home\")/.ssh/id_rsa"))
 
 (def default-port 22)
 
@@ -19,15 +22,15 @@
     (.addHostKeyVerifier (PromiscuousVerifier.))
     (.setTimeout timeout)))
 
-; (defn ssh-strap [{:keys [host ssh-port ssh-key user]}]
-;   (doto (sshj-client)
-;     (.connect host (or ssh-port default-port))
-;     (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))))
-
-(defn ssh-strap [{:keys [host ssh-port user password]}]
+(defn ssh-strap [{:keys [host ssh-port ssh-key user]}]
   (doto (sshj-client)
     (.connect host (or ssh-port default-port))
-    (.authPassword user password)))
+    (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))))
+
+; (defn ssh-strap [{:keys [host ssh-port user password]}]
+;   (doto (sshj-client)
+;     (.connect host (or ssh-port default-port))
+;     (.authPassword user password)))
 
 (defmacro with-ssh [remote & body]
   `(let [~'ssh (ssh-strap ~remote)]
@@ -38,6 +41,26 @@
        (finally
          (log/trace "disconneted ssh")
          (.disconnect ~'ssh)))))
+
+(defn log-output
+  "Output log stream"
+  [out host]
+  (doseq [line (line-seq (io/reader out))]
+    (log/debug (<< "[~{host}]:") line)))
+
+(defn execute
+  "Executes a cmd on a remote host"
+  [cmd remote & {:keys [out-fn err-fn] :or {out-fn log-output err-fn log-output}}]
+  (with-ssh remote
+    (let [session (doto (.startSession ssh) (.allocateDefaultPTY)) command (.exec session cmd)]
+      (try (log/trace (<< "[~(remote :host)]:") cmd)
+           (out-fn (.getInputStream command) (remote :host))
+           (err-fn (.getErrorStream command) (remote :host))
+           (.join command 60 TimeUnit/SECONDS)
+           (.getExitStatus command)
+           (finally
+             (.close session)
+             (log/trace "session closed!"))))))
 
 (def listener
   (proxy [TransferListener] []
