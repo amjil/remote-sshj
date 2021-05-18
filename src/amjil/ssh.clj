@@ -16,21 +16,24 @@
 (def default-user "root")
 (def default-port 22)
 
-(def ^:dynamic timeout (* 1000 60 10))
+(def ^:dynamic operation-timeout (* 1000 60 10))
+
+(def ^:dynamic connection-timeout (* 1000 2))
 
 (defn sshj-client []
   (doto (SSHClient.)
     (.addHostKeyVerifier (PromiscuousVerifier.))
     (.setConnectTimeout connection-timeout)
-    (.setTimeout timeout)))
+    (.setTimeout operation-timeout)))
 
 (defn ssh-strap [{:keys [host ssh-port ssh-key user password auth-key]}]
   (try
     (doto (sshj-client)
       (.connect host (or ssh-port default-port))
-      (if auth-key
-        (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))
-        (.authPassword user password)))
+      (.authPassword user password))
+      ; (if (true? auth-key)
+      ;   (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))
+      ;   (.authPassword user password)))
     (catch Exception e
       (if-let [m (some-> e .getCause .getMessage)]
         (when (.contains m "Problem getting public")
