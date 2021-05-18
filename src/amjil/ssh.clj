@@ -9,10 +9,11 @@
    (net.schmizz.sshj SSHClient)
    (net.schmizz.sshj.userauth.keyprovider FileKeyProvider)
    (net.schmizz.sshj.transport.verification PromiscuousVerifier)))
-;; https://github.com/re-ops/re-mote
+;; Copied from https://github.com/re-ops/re-mote
 
 (def default-key (<< "~(System/getProperty \"user.home\")/.ssh/id_rsa"))
 
+(def default-user "root")
 (def default-port 22)
 
 (def ^:dynamic timeout (* 1000 60 10))
@@ -20,17 +21,21 @@
 (defn sshj-client []
   (doto (SSHClient.)
     (.addHostKeyVerifier (PromiscuousVerifier.))
+    (.setConnectTimeout connection-timeout)
     (.setTimeout timeout)))
 
-(defn ssh-strap [{:keys [host ssh-port ssh-key user]}]
-  (doto (sshj-client)
-    (.connect host (or ssh-port default-port))
-    (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))))
-
-; (defn ssh-strap [{:keys [host ssh-port user password]}]
-;   (doto (sshj-client)
-;     (.connect host (or ssh-port default-port))
-;     (.authPassword user password)))
+(defn ssh-strap [{:keys [host ssh-port ssh-key user password auth-key]}]
+  (try
+    (doto (sshj-client)
+      (.connect host (or ssh-port default-port))
+      (if auth-key
+        (.authPublickey user #^"[Ljava.lang.String;" (into-array [(or ssh-key default-key)]))
+        (.authPassword user password)))
+    (catch Exception e
+      (if-let [m (some-> e .getCause .getMessage)]
+        (when (.contains m "Problem getting public")
+          (throw (ex-info "Cannot load public key (new OPENSSH format keys aren't supported by sshj)" {:ssh-key ssh-key})))
+        (throw e)))))
 
 (defmacro with-ssh [remote & body]
   `(let [~'ssh (ssh-strap ~remote)]
@@ -81,8 +86,6 @@
 
 (defn download
   [src dst remote]
-  (when-not (.exists (io/file dst))
-    (throw (ex-info "file already exist" {:file dst})))
   (with-ssh remote
     (let [scp (.newSCPFileTransfer ssh)]
       (.setTransferListener scp listener)
